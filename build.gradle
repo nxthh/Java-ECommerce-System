@@ -1,0 +1,44 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
+}
+
+group = 'org.marketplace'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+javafx {
+    version = '21.0.8'
+    modules = ['javafx.controls']
+}
+
+application {
+    mainClass = 'org.marketplace.fx.FxLauncher'
+}
+
+dependencies {
+    implementation 'org.apache.poi:poi-ooxml:5.5.1'
+    implementation 'org.apache.commons:commons-csv:1.14.1'
+
+    implementation 'org.nocrala.tools.texttablefmt:text-table-formatter:1.2.4'
+
+    compileOnly 'org.projectlombok:lombok:1.18.48'
+    annotationProcessor 'org.projectlombok:lombok:1.18.48'
+
+    testCompileOnly 'org.projectlombok:lombok:1.18.48'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.48'
+
+    implementation 'org.postgresql:postgresql:42.7.13'
+
+    testImplementation platform('org.junit:junit-bom:6.0.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
