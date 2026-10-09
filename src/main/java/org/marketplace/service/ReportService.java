@@ -1,28 +1,35 @@
 package org.marketplace.service;
 
-import lombok.RequiredArgsConstructor;
-import org.marketplace.exception.ValidationException;
-import org.marketplace.model.*;
 import org.marketplace.repository.ReportRepository;
+import org.marketplace.repository.impl.PSQLReportRepository;
 
-import java.sql.SQLException;
+import java.util.List;
+import java.util.Map;
 
-@RequiredArgsConstructor
 public class ReportService {
+    private final ReportRepository reportRepo;
 
-    private final ReportRepository repository;
+    public ReportService() {
+        this(new PSQLReportRepository());
+    }
 
-    public TableData generate(User user, String type)
-            throws SQLException {
+    public ReportService(ReportRepository reportRepo) {
+        this.reportRepo = reportRepo;
+    }
 
-        UserService.requireRole(user, "ADMIN", "SELLER");
+    public List<Map<String, String>> getRevenueByCategory() {
+        return reportRepo.revenueByCategory();
+    }
 
-        if (!"SUMMARY".equals(type)
-                && !"DAILY".equals(type)
-                && !"TOP".equals(type)) {
-            throw new ValidationException("Invalid report type.");
-        }
+    public List<Map<String, String>> getTopSellingProducts(int limit) {
+        return reportRepo.topSellingProducts(limit);
+    }
 
-        return repository.generate(user, type);
+    public List<Map<String, String>> getRevenuePerSeller() {
+        return reportRepo.revenuePerSeller();
+    }
+
+    public List<Map<String, String>> getDailySales(int days) {
+        return reportRepo.dailySales(days);
     }
 }

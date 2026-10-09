@@ -8,21 +8,20 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 
 /**
- * Represents one row in the {@code cart_items} table, enriched with
- * product details needed for cart display.
+ * Domain model that mirrors the {@code order_items} table.
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class CartItem {
+public class OrderItem {
 
-    private Long       userId;
+    private Long       id;
+    private Long       orderId;
     private Long       productId;
     private String     productName;
-    private BigDecimal unitPrice;
-    private int        stock;
     private int        quantity;
+    private BigDecimal unitPrice;
 
     /** @return total price for this line: unitPrice × quantity. */
     public BigDecimal getLineTotal() {

@@ -4,71 +4,40 @@ import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
-
 import org.marketplace.model.User;
 
-import java.net.URL;
-
+/**
+ * JavaFX Application class for E-Commerce Marketplace.
+ */
 public class MarketplaceApp extends Application {
 
-    private final FxServices services = new FxServices();
-    private Scene scene;
+    private Stage primaryStage;
+    private StackPane root;
 
     @Override
     public void start(Stage stage) {
-        scene = new Scene(
-                new StackPane(),
-                1240,
-                820
-        );
-
-        URL css = MarketplaceApp.class.getResource(
-                "/org/marketplace/fx/marketplace.css"
-        );
-
-        if (css == null) {
-            throw new IllegalStateException(
-                    "Cannot find marketplace.css. "
-                            + "Place it in src/main/resources/org/marketplace/fx/"
-            );
-        }
-
-        scene.getStylesheets().add(css.toExternalForm());
-
-        System.out.println("Loaded stylesheet: " + css);
-
-        stage.setScene(scene);
-        stage.setTitle("MarketSpace | Marketplace");
-        stage.setMinWidth(1050);
-        stage.setMinHeight(760);
+        this.primaryStage = stage;
+        this.root = new StackPane();
 
         showLogin();
+
+        Scene scene = new Scene(root, 900, 600);
+        stage.setTitle("E-Commerce Marketplace");
+        stage.setScene(scene);
         stage.show();
     }
 
-    void showLogin() {
-        scene.setRoot(
-                new LoginPane(this, services)
-        );
+    private void showLogin() {
+        LoginPane loginPane = new LoginPane(this::showDashboard);
+        root.getChildren().setAll(loginPane);
     }
 
-    void showDashboard(User user) {
-        scene.setRoot(
-                new DashboardPane(this, services, user)
-        );
+    private void showDashboard(User user) {
+        DashboardPane dashboard = new DashboardPane(user, this::showLogin);
+        root.getChildren().setAll(dashboard);
     }
 
-    void showGuestCatalog() {
-        User guest = new User();
-
-        guest.setFullName("Guest");
-        guest.setRole("GUEST");
-
-        DashboardPane dashboard = new DashboardPane(
-                this, services, guest
-        );
-
-        scene.setRoot(dashboard);
-        dashboard.open("CATALOG");
+    public static void main(String[] args) {
+        launch(args);
     }
 }

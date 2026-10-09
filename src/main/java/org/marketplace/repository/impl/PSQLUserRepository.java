@@ -1,175 +1,134 @@
 package org.marketplace.repository.impl;
 
-import org.marketplace.model.TableData;
+import org.marketplace.config.DBConfig;
+import org.marketplace.exception.DataAccessException;
 import org.marketplace.model.User;
 import org.marketplace.repository.UserRepository;
 import org.marketplace.util.JdbcUtil;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
+/**
+ * PostgreSQL implementation of {@link UserRepository}.
+ */
 public class PSQLUserRepository implements UserRepository {
 
-    @Override
-    public User findByUsername(String username) throws SQLException {
-        String sql = """
-                SELECT id, username, password_hash, full_name, role
-                FROM users
-                WHERE username = ?
-                """;
+    private final DBConfig db = DBConfig.getInstance();
 
-        try (
-                Connection connection = JdbcUtil.open();
-                PreparedStatement statement =
-                        connection.prepareStatement(sql)
-        ) {
-            statement.setString(1, username);
+    private static final String SELECT_BASE =
+            "SELECT id, username, password_hash, full_name, role FROM users ";
 
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (resultSet.next()) {
-                    User user = new User();
+    private static final String FIND_BY_USERNAME = SELECT_BASE + "WHERE username = ?";
+    private static final String FIND_BY_ID        = SELECT_BASE + "WHERE id = ?";
+    private static final String FIND_ALL           = SELECT_BASE + "ORDER BY id";
+    private static final String FIND_BY_ROLE       = SELECT_BASE + "WHERE role = ? ORDER BY username";
 
-                    user.setId(resultSet.getLong("id"));
-                    user.setUsername(resultSet.getString("username"));
-                    user.setPasswordHash(
-                            resultSet.getString("password_hash")
-                    );
-                    user.setFullName(resultSet.getString("full_name"));
-                    user.setRole(resultSet.getString("role"));
+    private static final String INSERT =
+            "INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, ?)";
 
-                    return user;
-                }
-            }
-        }
+    private static final String UPDATE =
+            "UPDATE users SET username = ?, password_hash = ?, full_name = ?, role = ? WHERE id = ?";
 
-        return null;
-    }
+    private static final String DELETE = "DELETE FROM users WHERE id = ?";
+
+    // -----------------------------------------------------------------------
 
     @Override
-    public void save(User user) throws SQLException {
-        String sql = """
-                INSERT INTO users (
-                    username,
-                    password_hash,
-                    full_name,
-                    role
-                )
-                VALUES (?, ?, ?, ?)
-                RETURNING id
-                """;
-
-        try (
-                Connection connection = JdbcUtil.open();
-                PreparedStatement statement =
-                        connection.prepareStatement(sql)
-        ) {
-            statement.setString(1, user.getUsername());
-            statement.setString(2, user.getPasswordHash());
-            statement.setString(3, user.getFullName());
-            statement.setString(4, user.getRole());
-
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    throw new SQLException("Could not create user.");
-                }
-
-                user.setId(resultSet.getLong("id"));
-            }
+    public Optional<User> findByUsername(String username) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = JdbcUtil.prepare(conn, FIND_BY_USERNAME, username);
+             ResultSet rs = stmt.executeQuery()) {
+            return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to find user by username", e);
         }
     }
 
     @Override
-    public TableData findById(long id) throws SQLException {
-        String sql = """
-                SELECT id, username, full_name, role
-                FROM users
-                WHERE id = ?
-                """;
-
-        return JdbcUtil.query(sql, id);
-    }
-
-    @Override
-    public List<User> findAll() throws SQLException {
-        String sql = """
-                SELECT id, username, full_name, role
-                FROM users
-                ORDER BY id
-                """;
-
-        List<User> users = new ArrayList<>();
-
-        try (
-                Connection connection = JdbcUtil.open();
-                PreparedStatement statement =
-                        connection.prepareStatement(sql);
-                ResultSet resultSet = statement.executeQuery()
-        ) {
-            while (resultSet.next()) {
-                User user = new User();
-
-                user.setId(resultSet.getLong("id"));
-                user.setUsername(resultSet.getString("username"));
-                user.setFullName(resultSet.getString("full_name"));
-                user.setRole(resultSet.getString("role"));
-
-                users.add(user);
-            }
-        }
-
-        return users;
-    }
-
-    @Override
-    public int updateName(long id, String fullName)
-            throws SQLException {
-
-        String sql = """
-                UPDATE users
-                SET full_name = ?
-                WHERE id = ?
-                """;
-
-        try (
-                Connection connection = JdbcUtil.open();
-                PreparedStatement statement =
-                        connection.prepareStatement(sql)
-        ) {
-            statement.setString(1, fullName);
-            statement.setLong(2, id);
-
-            return statement.executeUpdate();
+    public Optional<User> findById(long id) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = JdbcUtil.prepare(conn, FIND_BY_ID, id);
+             ResultSet rs = stmt.executeQuery()) {
+            return rs.next() ? Optional.of(map(rs)) : Optional.empty();
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to find user id=" + id, e);
         }
     }
 
     @Override
-    public void lock(Connection connection, long userId)
-            throws SQLException {
-
-        String sql = """
-                SELECT id
-                FROM users
-                WHERE id = ?
-                FOR UPDATE
-                """;
-
-        // Use the caller's transaction connection.
-        // Do not close or commit that connection here.
-        try (
-                PreparedStatement statement =
-                        connection.prepareStatement(sql)
-        ) {
-            statement.setLong(1, userId);
-
-            try (ResultSet resultSet = statement.executeQuery()) {
-                if (!resultSet.next()) {
-                    throw new SQLException("User not found.");
-                }
-            }
+    public List<User> findAll() {
+        List<User> list = new ArrayList<>();
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(FIND_ALL);
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) list.add(map(rs));
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to fetch users", e);
         }
+        return list;
+    }
+
+    @Override
+    public List<User> findByRole(User.Role role) {
+        List<User> list = new ArrayList<>();
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = JdbcUtil.prepare(conn, FIND_BY_ROLE, role.name());
+             ResultSet rs = stmt.executeQuery()) {
+            while (rs.next()) list.add(map(rs));
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to fetch users by role=" + role, e);
+        }
+        return list;
+    }
+
+    @Override
+    public User save(User user) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = JdbcUtil.prepareWithKeys(conn, INSERT,
+                     user.getUsername(), user.getPasswordHash(),
+                     user.getFullName(), user.getRole().name())) {
+            stmt.executeUpdate();
+            user.setId(JdbcUtil.getGeneratedKey(stmt));
+            return user;
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to insert user", e);
+        }
+    }
+
+    @Override
+    public boolean update(User user) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = JdbcUtil.prepare(conn, UPDATE,
+                     user.getUsername(), user.getPasswordHash(),
+                     user.getFullName(), user.getRole().name(), user.getId())) {
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to update user id=" + user.getId(), e);
+        }
+    }
+
+    @Override
+    public boolean delete(long id) {
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = JdbcUtil.prepare(conn, DELETE, id)) {
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw new DataAccessException("Failed to delete user id=" + id, e);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+
+    private User map(ResultSet rs) throws SQLException {
+        return User.builder()
+                .id(rs.getLong("id"))
+                .username(rs.getString("username"))
+                .passwordHash(rs.getString("password_hash"))
+                .fullName(rs.getString("full_name"))
+                .role(User.Role.valueOf(rs.getString("role")))
+                .build();
     }
 }

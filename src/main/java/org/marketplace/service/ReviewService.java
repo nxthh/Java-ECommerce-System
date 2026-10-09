@@ -1,36 +1,44 @@
 package org.marketplace.service;
 
-import lombok.RequiredArgsConstructor;
-import org.marketplace.exception.ValidationException;
-import org.marketplace.model.*;
+import org.marketplace.model.Review;
 import org.marketplace.repository.ReviewRepository;
+import org.marketplace.repository.impl.PSQLReviewRepository;
 
-import java.sql.SQLException;
+import java.util.List;
+import java.util.Optional;
 
-@RequiredArgsConstructor
 public class ReviewService {
+    private final ReviewRepository reviewRepo;
 
-    private final ReviewRepository repository;
-
-    public TableData list(long productId) throws SQLException {
-        return repository.findByProduct(productId);
+    public ReviewService() {
+        this(new PSQLReviewRepository());
     }
 
-    public void save(
-            User user, long productId, int rating, String comment
-    ) throws SQLException {
+    public ReviewService(ReviewRepository reviewRepo) {
+        this.reviewRepo = reviewRepo;
+    }
 
-        UserService.requireRole(user, "CUSTOMER");
+    public List<Review> getReviewsForProduct(long productId) {
+        return reviewRepo.findByProduct(productId);
+    }
 
-        if (rating < 1 || rating > 5) {
-            throw new ValidationException("Rating must be 1–5.");
-        }
+    public List<Review> getReviewsByUser(long userId) {
+        return reviewRepo.findByUser(userId);
+    }
 
-        if (repository.save(
-                user.getId(), productId, rating, comment) == 0) {
-            throw new ValidationException(
-                    "Purchase this product before reviewing it."
-            );
-        }
+    public Optional<Review> getReview(long id) {
+        return reviewRepo.findById(id);
+    }
+
+    public Review addReview(Review review) {
+        return reviewRepo.save(review);
+    }
+
+    public boolean updateReview(Review review) {
+        return reviewRepo.update(review);
+    }
+
+    public boolean deleteReview(long id) {
+        return reviewRepo.delete(id);
     }
 }
