@@ -1,38 +1,41 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.CartItem;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.User;
 import org.marketplace.service.CartService;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class CartController {
-    private final CartService cartService;
 
-    public CartController() {
-        this.cartService = new CartService();
+    private final CartService service;
+
+    public void list(User user) throws SQLException {
+        InputUtil.table(service.list(user));
     }
 
-    public CartController(CartService cartService) {
-        this.cartService = cartService;
+    public void set(User user) throws SQLException {
+        long productId = InputUtil.id("Product ID: ");
+        int quantity;
+
+        do {
+            quantity = InputUtil.number("New cart quantity: ");
+
+            if (quantity <= 0) {
+                InputUtil.message("Quantity must be positive.");
+            }
+        } while (quantity <= 0);
+
+        service.set(user, productId, quantity);
+        InputUtil.message("Cart saved.");
     }
 
-    public List<CartItem> getCart(long userId) {
-        return cartService.getCart(userId);
-    }
+    public void remove(User user) throws SQLException {
+        list(user);
 
-    public CartItem addToCart(long userId, long productId, int quantity) {
-        return cartService.addToCart(userId, productId, quantity);
-    }
-
-    public boolean updateQuantity(long userId, long productId, int quantity) {
-        return cartService.updateQuantity(userId, productId, quantity);
-    }
-
-    public boolean removeFromCart(long userId, long productId) {
-        return cartService.removeFromCart(userId, productId);
-    }
-
-    public void clearCart(long userId) {
-        cartService.clearCart(userId);
+        service.remove(user, InputUtil.id("Product ID to remove: "));
+        InputUtil.message("Removed from cart.");
     }
 }

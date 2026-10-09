@@ -1,34 +1,29 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.Product;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.User;
 import org.marketplace.service.WishlistService;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class WishlistController {
-    private final WishlistService wishlistService;
 
-    public WishlistController() {
-        this.wishlistService = new WishlistService();
+    private final WishlistService service;
+
+    public void list(User user) throws SQLException {
+        InputUtil.table(service.list(user));
     }
 
-    public WishlistController(WishlistService wishlistService) {
-        this.wishlistService = wishlistService;
+    public void add(User user) throws SQLException {
+        service.add(user, InputUtil.id("Product ID: "));
+        InputUtil.message("Added to wishlist.");
     }
 
-    public List<Product> getWishlist(long userId) {
-        return wishlistService.getWishlist(userId);
-    }
-
-    public boolean addToWishlist(long userId, long productId) {
-        return wishlistService.addToWishlist(userId, productId);
-    }
-
-    public boolean removeFromWishlist(long userId, long productId) {
-        return wishlistService.removeFromWishlist(userId, productId);
-    }
-
-    public boolean isInWishlist(long userId, long productId) {
-        return wishlistService.isInWishlist(userId, productId);
+    public void remove(User user) throws SQLException {
+        list(user);
+        service.remove(user, InputUtil.id("Product ID: "));
+        InputUtil.message("Removed from wishlist.");
     }
 }

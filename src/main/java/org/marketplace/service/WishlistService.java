@@ -1,35 +1,34 @@
 package org.marketplace.service;
 
-import org.marketplace.model.Product;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.exception.ValidationException;
+import org.marketplace.model.*;
 import org.marketplace.repository.WishlistRepository;
-import org.marketplace.repository.impl.PSQLWishlistRepository;
 
-import java.util.List;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class WishlistService {
-    private final WishlistRepository wishlistRepo;
 
-    public WishlistService() {
-        this(new PSQLWishlistRepository());
+    private final WishlistRepository repository;
+
+    public TableData list(User user) throws SQLException {
+        UserService.requireRole(user, "CUSTOMER");
+        return repository.findByUser(user.getId());
     }
 
-    public WishlistService(WishlistRepository wishlistRepo) {
-        this.wishlistRepo = wishlistRepo;
+    public void add(User user, long productId) throws SQLException {
+        UserService.requireRole(user, "CUSTOMER");
+
+        if (repository.add(user.getId(), productId) == 0) {
+            throw new ValidationException(
+                    "Product unavailable or already in wishlist."
+            );
+        }
     }
 
-    public List<Product> getWishlist(long userId) {
-        return wishlistRepo.findByUser(userId);
-    }
-
-    public boolean addToWishlist(long userId, long productId) {
-        return wishlistRepo.add(userId, productId);
-    }
-
-    public boolean removeFromWishlist(long userId, long productId) {
-        return wishlistRepo.remove(userId, productId);
-    }
-
-    public boolean isInWishlist(long userId, long productId) {
-        return wishlistRepo.exists(userId, productId);
+    public void remove(User user, long productId) throws SQLException {
+        UserService.requireRole(user, "CUSTOMER");
+        UserService.changed(repository.remove(user.getId(), productId));
     }
 }

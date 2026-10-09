@@ -1,43 +1,83 @@
 package org.marketplace.service;
 
-import org.marketplace.model.CartItem;
-import org.marketplace.repository.CartRepository;
-import org.marketplace.repository.ProductRepository;
-import org.marketplace.repository.impl.PSQLCartRepository;
-import org.marketplace.repository.impl.PSQLProductRepository;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.exception.ValidationException;
+import org.marketplace.model.*;
+import org.marketplace.repository.*;
+import org.marketplace.util.JdbcUtil;
 
-import java.util.List;
+import java.sql.*;
 
+@RequiredArgsConstructor
 public class CartService {
-    private final CartRepository cartRepo;
-    private final ProductRepository productRepo;
 
-    public CartService() {
-        this(new PSQLCartRepository(), new PSQLProductRepository());
+    private final CartRepository cartRepository;
+    private final ProductRepository productRepository;
+    private final UserRepository userRepository;
+
+    public TableData list(User user) throws SQLException {
+        UserService.requireRole(user, "CUSTOMER");
+        return cartRepository.findByUser(user.getId());
     }
 
-    public CartService(CartRepository cartRepo, ProductRepository productRepo) {
-        this.cartRepo = cartRepo;
-        this.productRepo = productRepo;
+    public void set(User user, long productId, int quantity)
+            throws SQLException {
+
+        UserService.requireRole(user, "CUSTOMER");
+
+        if (quantity <= 0) {
+            throw new ValidationException("Quantity must be positive.");
+        }
+
+        try (Connection connection = JdbcUtil.open()) {
+            connection.setAutoCommit(false);
+
+            try {
+                userRepository.lock(connection, user.getId());
+
+                Product product = productRepository.findById(
+                        connection, productId, true
+                );
+
+                if (product == null  !product.isActive()
+                product.getStock() < quantity) {
+                    throw new ValidationException(
+                            "Product unavailable or insufficient stock."
+                    );
+                }
+
+                cartRepository.setQuantity(
+                        connection, user.getId(), productId, quantity
+                );
+
+                connection.commit();
+
+            } catch (SQLException | RuntimeException exception) {
+                JdbcUtil.rollback(connection, exception);
+                throw exception;
+            }
+        }
     }
 
-    public List<CartItem> getCart(long userId) {
-        return cartRepo.findByUser(userId);
-    }
+    public void remove(User user, long productId) throws SQLException {
+        UserService.requireRole(user, "CUSTOMER");
 
-    public CartItem addToCart(long userId, long productId, int quantity) {
-        return cartRepo.addOrUpdate(userId, productId, quantity);
-    }
+        try (Connection connection = JdbcUtil.open()) {
+            connection.setAutoCommit(false);
 
-    public boolean updateQuantity(long userId, long productId, int quantity) {
-        return cartRepo.updateQuantity(userId, productId, quantity);
-    }
+            try {
+                userRepository.lock(connection, user.getId());
 
-    public boolean removeFromCart(long userId, long productId) {
-        return cartRepo.remove(userId, productId);
-    }
+                UserService.changed(cartRepository.remove(
+                        connection, user.getId(), productId
+                ));
 
-    public void clearCart(long userId) {
-        cartRepo.clearCart(userId);
+                connection.commit();
+
+            } catch (SQLException | RuntimeException exception) {
+                JdbcUtil.rollback(connection, exception);
+                throw exception;
+            }
+        }
     }
 }
