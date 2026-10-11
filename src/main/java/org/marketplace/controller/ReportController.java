@@ -1,34 +1,65 @@
 package org.marketplace.controller;
 
-import org.marketplace.service.ReportService;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.User;
+import org.marketplace.service.*;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class ReportController {
-    private final ReportService reportService;
 
-    public ReportController() {
-        this.reportService = new ReportService();
+    private final ReportService service;
+    private final ImportExportService files;
+
+    private String chooseType() {
+        int choice = InputUtil.menu(
+                "REPORT TYPE", "Back",
+                "Revenue summary", "Daily sales", "Top products"
+        );
+
+        if (choice == 1) {
+            return "SUMMARY";
+        }
+
+        if (choice == 2) {
+            return "DAILY";
+        }
+
+        if (choice == 3) {
+            return "TOP";
+        }
+
+        return null;
     }
 
-    public ReportController(ReportService reportService) {
-        this.reportService = reportService;
+    public void show(User user) throws SQLException {
+        String type = chooseType();
+
+        if (type != null) {
+            InputUtil.table(service.generate(user, type));
+        }
     }
 
-    public List<Map<String, String>> getRevenueByCategory() {
-        return reportService.getRevenueByCategory();
-    }
+    public void export(User user) throws SQLException, IOException {
+        String type = chooseType();
 
-    public List<Map<String, String>> getTopSellingProducts(int limit) {
-        return reportService.getTopSellingProducts(limit);
-    }
+        if (type == null) {
+            return;
+        }
 
-    public List<Map<String, String>> getRevenuePerSeller() {
-        return reportService.getRevenuePerSeller();
-    }
+        String filename = InputUtil.text(
+                "Output CSV/XLSX path (Enter to cancel): "
+        );
 
-    public List<Map<String, String>> getDailySales(int days) {
-        return reportService.getDailySales(days);
+        if (!filename.isEmpty()
+                && InputUtil.yes("Write file? Existing file will be replaced.")) {
+            InputUtil.message(
+                    "Exported to: "
+                            + files.exportReport(user, type, filename)
+            );
+        }
     }
 }

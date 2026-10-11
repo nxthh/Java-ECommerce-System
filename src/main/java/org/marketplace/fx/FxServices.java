@@ -1,51 +1,82 @@
 package org.marketplace.fx;
 
-import org.marketplace.controller.AuthController;
-import org.marketplace.controller.CategoryController;
-import org.marketplace.controller.ProductController;
-import org.marketplace.controller.UserController;
-import org.marketplace.model.User;
+import org.marketplace.model.Product;
+import org.marketplace.repository.*;
+import org.marketplace.repository.impl.*;
+import org.marketplace.service.*;
+import org.marketplace.util.JdbcUtil;
 
-/**
- * Service container for JavaFX UI layer.
- */
-public class FxServices {
-    private static final FxServices INSTANCE = new FxServices();
+import java.sql.Connection;
+import java.sql.SQLException;
 
-    private final AuthController authController = new AuthController();
-    private final ProductController productController = new ProductController();
-    private final CategoryController categoryController = new CategoryController();
-    private final UserController userController = new UserController();
+public final class FxServices {
 
-    private User currentUser;
+    final UserRepository userRepository =
+            new PSQLUserRepository();
 
-    private FxServices() {}
+    final ProductRepository productRepository =
+            new PSQLProductRepository();
 
-    public static FxServices getInstance() {
-        return INSTANCE;
-    }
+    final CartRepository cartRepository =
+            new PSQLCartRepository();
 
-    public AuthController getAuthController() {
-        return authController;
-    }
+    final AuthService auth =
+            new AuthService(userRepository);
 
-    public ProductController getProductController() {
-        return productController;
-    }
+    final UserService users =
+            new UserService(userRepository);
 
-    public CategoryController getCategoryController() {
-        return categoryController;
-    }
+    final CategoryService categories =
+            new CategoryService(new PSQLCategoryRepository());
 
-    public UserController getUserController() {
-        return userController;
-    }
+    final ProductService products =
+            new ProductService(productRepository);
 
-    public User getCurrentUser() {
-        return currentUser;
-    }
+    final CartService cart = new CartService(
+            cartRepository,
+            productRepository,
+            userRepository
+    );
 
-    public void setCurrentUser(User currentUser) {
-        this.currentUser = currentUser;
+    final WishlistService wishlist =
+            new WishlistService(new PSQLWishlistRepository());
+
+    final PaymentService payments =
+            new PaymentService(new PSQLPaymentRepository());
+
+    final OrderService orders = new OrderService(
+            new PSQLOrderRepository(),
+            cartRepository,
+            productRepository,
+            userRepository,
+            payments
+    );
+
+    final ReviewService reviews =
+            new ReviewService(new PSQLReviewRepository());
+
+    final ReportService reports =
+            new ReportService(new PSQLReportRepository());
+
+    final ImportExportService files = new ImportExportService(
+            productRepository,
+            products,
+            reports
+    );
+
+    Product findProduct(long id) throws SQLException {
+        try (Connection connection = JdbcUtil.open()) {
+            Product product = productRepository.findById(
+                    connection, id, false
+            );
+
+            if (product == null) {
+                throw new IllegalArgumentException(
+                        "Product not found."
+                );
+            }
+
+            return product;
+        }
     }
 }

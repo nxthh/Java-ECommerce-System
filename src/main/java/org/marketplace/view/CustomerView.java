@@ -1,133 +1,97 @@
 package org.marketplace.view;
 
-import org.marketplace.controller.CategoryController;
-import org.marketplace.controller.ProductController;
-import org.marketplace.model.Category;
-import org.marketplace.model.Product;
-import org.marketplace.model.TableData;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.controller.*;
 import org.marketplace.model.User;
+import org.marketplace.service.UserService;
 import org.marketplace.util.InputUtil;
 
-import java.util.ArrayList;
-import java.util.List;
-
-/**
- * Console view exposing product browse/search functionality to customers.
- *
- * <p>Product-management actions (cart, wishlist, orders) are handled by
- * the other team members' views; this class focuses on what belongs to
- * the Product Management responsibility: browsing and searching products.
- * </p>
- *
- * <p>Menu options:
- * <ol>
- *   <li>Browse all products</li>
- *   <li>Search by name</li>
- *   <li>Browse by category</li>
- *   <li>View product details</li>
- *   <li>Back</li>
- * </ol>
- * </p>
- */
+@RequiredArgsConstructor
 public class CustomerView {
 
-    private final ProductController  productController;
-    private final CategoryController categoryController;
+    private final UserController users;
+    private final ProductController products;
+    private final CartController cart;
+    private final WishlistController wishlist;
+    private final OrderController orders;
+    private final PaymentController payments;
+    private final ReviewController reviews;
 
-    public CustomerView() {
-        this.productController  = new ProductController();
-        this.categoryController = new CategoryController();
-    }
+    public void show(User user) {
+        UserService.requireRole(user, "CUSTOMER");
 
-    public CustomerView(ProductController productController,
-                        CategoryController categoryController) {
-        this.productController  = productController;
-        this.categoryController = categoryController;
-    }
+        while (true) {
+            int choice = InputUtil.menu(
+                    "CUSTOMER ACCOUNT", "Logout",
+                    "Profile",
+                    "Browse products",
+                    "Add to cart / replace quantity",
+                    "View cart",
+                    "Remove cart item",
+                    "Add to wishlist",
+                    "View wishlist",
+                    "Remove wishlist item",
+                    "Checkout",
+                    "My orders",
+                    "Order details",
+                    "Payment history",
+                    "View product reviews",
+                    "Add / update my review"
+            );
 
-    /** Entry point: shows the product-browsing menu in a loop. */
-    public void showProductMenu(User customer) {
-        boolean running = true;
-        while (running) {
-            ConsoleView.printHeader("Browse Products");
-            System.out.println("  1. All products");
-            System.out.println("  2. Search by name");
-            System.out.println("  3. Browse by category");
-            System.out.println("  4. View product details");
-            System.out.println("  0. Back");
+            if (choice == 0) {
+                return;
+            }
 
-            int choice = InputUtil.readChoice("\nEnter choice: ", 0, 4);
-            System.out.println();
+            try {
+                switch (choice) {
+                    case 1:
+                        users.profile(user);
+                        break;
+                    case 2:
+                        products.browse();
+                        break;
+                    case 3:
+                        cart.set(user);
+                        break;
+                    case 4:
+                        cart.list(user);
+                        break;
+                    case 5:
+                        cart.remove(user);
+                        break;
+                    case 6:
+                        wishlist.add(user);
+                        break;
+                    case 7:
+                        wishlist.list(user);
+                        break;
+                    case 8:
+                        wishlist.remove(user);
+                        break;
+                    case 9:
+                        orders.checkout(user);
+                        break;
+                    case 10:
+                        orders.history(user);
+                        break;
+                    case 11:
+                        orders.details(user);
+                        break;
+                    case 12:
+                        payments.history(user);
+                        break;
+                    case 13:
+                        reviews.list();
+                        break;
+                    case 14:
+                        reviews.save(user);
+                        break;
+                }
 
-            switch (choice) {
-                case 1 -> browseAll();
-                case 2 -> search();
-                case 3 -> browseByCategory();
-                case 4 -> viewDetails();
-                case 0 -> running = false;
+            } catch (Exception exception) {
+                InputUtil.error(exception);
             }
         }
-    }
-
-    // -----------------------------------------------------------------------
-
-    private void browseAll() {
-        List<Product> products = productController.listActiveProducts();
-        ConsoleView.printTable(toTableData(products));
-        ConsoleView.printInfo("Total: " + products.size() + " product(s).");
-    }
-
-    private void search() {
-        String keyword = InputUtil.readLine("  Search keyword: ");
-        List<Product> products = productController.searchProducts(keyword);
-        ConsoleView.printTable(toTableData(products));
-        ConsoleView.printInfo("Found: " + products.size() + " product(s).");
-    }
-
-    private void browseByCategory() {
-        List<Category> categories = categoryController.listAllCategories();
-        System.out.println("  Categories:");
-        for (Category c : categories) {
-            System.out.printf("    [%d] %s%n", c.getId(), c.getName());
-        }
-        int categoryId = InputUtil.readInt("  Category ID: ");
-        List<Product> products = productController.listByCategory(categoryId);
-        ConsoleView.printTable(toTableData(products));
-        ConsoleView.printInfo("Found: " + products.size() + " product(s).");
-    }
-
-    private void viewDetails() {
-        int productId = InputUtil.readInt("  Product ID: ");
-        try {
-            Product p = productController.getProduct(productId);
-            ConsoleView.printHeader("Product Details");
-            System.out.printf("  ID       : %d%n",         p.getId());
-            System.out.printf("  Name     : %s%n",         p.getName());
-            System.out.printf("  Price    : $%s%n",        p.getPrice().toPlainString());
-            System.out.printf("  Stock    : %d%n",         p.getStock());
-            System.out.printf("  Category : %s%n",         p.getCategoryName());
-            System.out.printf("  Seller   : %s%n",         p.getSellerUsername());
-            System.out.printf("  Active   : %s%n",         p.isActive() ? "Yes" : "No");
-        } catch (Exception e) {
-            ConsoleView.printError(e.getMessage());
-        }
-    }
-
-    // -----------------------------------------------------------------------
-
-    static TableData toTableData(List<Product> products) {
-        List<String> headers = List.of("ID", "Name", "Price", "Stock", "Category", "Seller");
-        List<List<String>> rows = new ArrayList<>();
-        for (Product p : products) {
-            rows.add(List.of(
-                    String.valueOf(p.getId()),
-                    p.getName(),
-                    "$" + p.getPrice().toPlainString(),
-                    String.valueOf(p.getStock()),
-                    p.getCategoryName() != null ? p.getCategoryName() : "",
-                    p.getSellerUsername() != null ? p.getSellerUsername() : ""
-            ));
-        }
-        return new TableData(headers, rows);
     }
 }

@@ -1,163 +1,112 @@
 package org.marketplace.repository.impl;
 
-import org.marketplace.config.DBConfig;
-import org.marketplace.exception.DataAccessException;
-import org.marketplace.model.Order;
-import org.marketplace.model.OrderItem;
+import org.marketplace.model.*;
 import org.marketplace.repository.OrderRepository;
 import org.marketplace.util.JdbcUtil;
 
+import java.math.BigDecimal;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
 
-/**
- * PostgreSQL implementation of {@link OrderRepository}.
- * To be fleshed out by Phanit.
- */
 public class PSQLOrderRepository implements OrderRepository {
 
-    private final DBConfig db = DBConfig.getInstance();
-
-    private static final String FIND_BY_CUSTOMER =
-            "SELECT o.id, o.customer_id, o.status, o.total_amount, o.created_at, u.username AS customer_username " +
-            "FROM   orders o JOIN users u ON u.id = o.customer_id " +
-            "WHERE  o.customer_id = ? ORDER BY o.created_at DESC";
-
-    private static final String FIND_ALL =
-            "SELECT o.id, o.customer_id, o.status, o.total_amount, o.created_at, u.username AS customer_username " +
-            "FROM   orders o JOIN users u ON u.id = o.customer_id ORDER BY o.created_at DESC";
-
-    private static final String FIND_BY_ID =
-            "SELECT o.id, o.customer_id, o.status, o.total_amount, o.created_at, u.username AS customer_username " +
-            "FROM   orders o JOIN users u ON u.id = o.customer_id WHERE o.id = ?";
-
-    private static final String FIND_ITEMS =
-            "SELECT oi.id, oi.order_id, oi.product_id, oi.quantity, oi.unit_price, p.name AS product_name " +
-            "FROM   order_items oi JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ?";
-
-    private static final String INSERT_ORDER =
-            "INSERT INTO orders (customer_id, status, total_amount) VALUES (?, ?, ?)";
-
-    private static final String INSERT_ITEM =
-            "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)";
-
-    private static final String UPDATE_STATUS =
-            "UPDATE orders SET status = ? WHERE id = ?";
-
     @Override
-    public List<Order> findByCustomer(long customerId) {
-        return queryOrders(FIND_BY_CUSTOMER, customerId);
+    public long create(
+            Connection connection, long customerId, BigDecimal total
+    ) throws SQLException {
+
+        return JdbcUtil.insertId(connection, """
+                INSERT INTO orders(customer_id, status, total_amount)
+                VALUES (?, 'PENDING', ?)
+                RETURNING id
+                """, customerId, total);
     }
 
     @Override
-    public List<Order> findAll() {
-        return queryOrders(FIND_ALL);
+    public void addItem(
+            Connection connection, long orderId,
+            Product product, int quantity
+    ) throws SQLException {
+
+        JdbcUtil.update(connection, """
+                INSERT INTO order_items(
+                    order_id, product_id, quantity, unit_price
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                orderId, product.getId(), quantity, product.getPrice());
     }
 
     @Override
-    public Optional<Order> findById(long id) {
-        List<Order> results = queryOrders(FIND_BY_ID, id);
-        if (results.isEmpty()) return Optional.empty();
-        Order order = results.get(0);
-        order.setItems(fetchItems(order.getId()));
-        return Optional.of(order);
+    public void updateStatus(
+            Connection connection, long id, String status
+    ) throws SQLException {
+
+        JdbcUtil.update(connection,
+                "UPDATE orders SET status = ? WHERE id = ?",
+                status, id);
     }
 
     @Override
-    public Order save(Order order) {
-        try (Connection conn = db.getConnection()) {
-            conn.setAutoCommit(false);
-            try {
-                // Insert order header
-                try (PreparedStatement stmt = JdbcUtil.prepareWithKeys(conn, INSERT_ORDER,
-                        order.getCustomerId(),
-                        order.getStatus().name(),
-                        order.getTotalAmount())) {
-                    stmt.executeUpdate();
-                    order.setId(JdbcUtil.getGeneratedKey(stmt));
-                }
-                // Insert order items
-                if (order.getItems() != null) {
-                    for (OrderItem item : order.getItems()) {
-                        try (PreparedStatement stmt = JdbcUtil.prepareWithKeys(conn, INSERT_ITEM,
-                                order.getId(), item.getProductId(),
-                                item.getQuantity(), item.getUnitPrice())) {
-                            stmt.executeUpdate();
-                            item.setId(JdbcUtil.getGeneratedKey(stmt));
-                            item.setOrderId(order.getId());
-                        }
-                    }
-                }
-                conn.commit();
-            } catch (Exception e) {
-                conn.rollback();
-                throw e;
-            } finally {
-                conn.setAutoCommit(true);
-            }
-        } catch (SQLException e) {
-            throw new DataAccessException("Failed to save order", e);
+    public TableData findByUser(User user) throws SQLException {
+        if ("ADMIN".equals(user.getRole())) {
+            return JdbcUtil.query("""
+                    SELECT id, customer_id, status,
+                           total_amount, created_at
+                    FROM orders ORDER BY id DESC
+                    """);
         }
-        return order;
+
+        if ("SELLER".equals(user.getRole())) {
+            return JdbcUtil.query("""
+                    SELECT o.id, o.status,
+                           SUM(oi.quantity * oi.unit_price) AS seller_total,
+                           o.created_at
+                    FROM orders o
+                    JOIN order_items oi ON oi.order_id = o.id
+                    JOIN products p ON p.id = oi.product_id
+                    WHERE p.seller_id = ?
+                    GROUP BY o.id
+                    ORDER BY o.id DESC
+                    """, user.getId());
+        }
+
+        return JdbcUtil.query("""
+                SELECT id, status, total_amount, created_at
+                FROM orders
+                WHERE customer_id = ?
+                ORDER BY id DESC
+                """, user.getId());
     }
 
     @Override
-    public boolean updateStatus(long orderId, Order.Status status) {
-        try (Connection conn = db.getConnection();
-             PreparedStatement stmt = JdbcUtil.prepare(conn, UPDATE_STATUS, status.name(), orderId)) {
-            return stmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            throw new DataAccessException("Failed to update order status", e);
-        }
+    public TableData details(User user, long orderId)
+            throws SQLException {
+
+        return JdbcUtil.query("""
+                SELECT p.id AS product_id, p.name,
+                       oi.quantity, oi.unit_price,
+                       oi.quantity * oi.unit_price AS subtotal
+                FROM order_items oi
+                JOIN orders o ON o.id = oi.order_id
+                JOIN products p ON p.id = oi.product_id
+                WHERE o.id = ?
+                  AND (
+                      ? = 'ADMIN'
+                      OR (? = 'CUSTOMER' AND o.customer_id = ?)
+                      OR (? = 'SELLER' AND p.seller_id = ?)
+                  )
+                ORDER BY oi.id
+                """,
+                orderId, user.getRole(),
+                user.getRole(), user.getId(),
+                user.getRole(), user.getId());
     }
 
-    // -----------------------------------------------------------------------
-
-    private List<Order> queryOrders(String sql, Object... params) {
-        List<Order> list = new ArrayList<>();
-        try (Connection conn = db.getConnection();
-             PreparedStatement stmt = JdbcUtil.prepare(conn, sql, params);
-             ResultSet rs = stmt.executeQuery()) {
-            while (rs.next()) list.add(mapOrder(rs));
-        } catch (SQLException e) {
-            throw new DataAccessException("Failed to query orders", e);
-        }
-        return list;
-    }
-
-    private List<OrderItem> fetchItems(long orderId) {
-        List<OrderItem> items = new ArrayList<>();
-        try (Connection conn = db.getConnection();
-             PreparedStatement stmt = JdbcUtil.prepare(conn, FIND_ITEMS, orderId);
-             ResultSet rs = stmt.executeQuery()) {
-            while (rs.next()) items.add(mapItem(rs));
-        } catch (SQLException e) {
-            throw new DataAccessException("Failed to fetch order items", e);
-        }
-        return items;
-    }
-
-    private Order mapOrder(ResultSet rs) throws SQLException {
-        return Order.builder()
-                .id(rs.getLong("id"))
-                .customerId(rs.getLong("customer_id"))
-                .customerUsername(rs.getString("customer_username"))
-                .status(Order.Status.valueOf(rs.getString("status")))
-                .totalAmount(rs.getBigDecimal("total_amount"))
-                .createdAt(rs.getTimestamp("created_at").toLocalDateTime())
-                .build();
-    }
-
-    private OrderItem mapItem(ResultSet rs) throws SQLException {
-        return OrderItem.builder()
-                .id(rs.getLong("id"))
-                .orderId(rs.getLong("order_id"))
-                .productId(rs.getLong("product_id"))
-                .productName(rs.getString("product_name"))
-                .quantity(rs.getInt("quantity"))
-                .unitPrice(rs.getBigDecimal("unit_price"))
-                .build();
+    @Override
+    public int complete(long orderId) throws SQLException {
+        return JdbcUtil.update("""
+                UPDATE orders SET status = 'COMPLETED'
+                WHERE id = ? AND status = 'PAID'
+                """, orderId);
     }
 }

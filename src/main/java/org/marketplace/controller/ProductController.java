@@ -1,146 +1,170 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.Product;
-import org.marketplace.model.User;
-import org.marketplace.service.CategoryService;
-import org.marketplace.service.ImportExportService;
-import org.marketplace.service.ImportExportService.ImportResult;
-import org.marketplace.service.ProductService;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.*;
+import org.marketplace.service.*;
+import org.marketplace.util.InputUtil;
 
 import java.math.BigDecimal;
-import java.util.List;
+import java.sql.SQLException;
 
-/**
- * Thin controller that mediates between the view layer and the
- * {@link ProductService}, {@link CategoryService}, and {@link ImportExportService}.
- *
- * <p>No business logic lives here – validation and authorization are in the
- * service layer. Controllers only delegate calls and return results.</p>
- */
+@RequiredArgsConstructor
 public class ProductController {
 
-    private final ProductService      productService;
-    private final CategoryService     categoryService;
-    private final ImportExportService importExportService;
+    private final ProductService service;
+    private final CategoryService categoryService;
+    private final ImportExportService files;
 
-    /** Default constructor wires default service implementations. */
-    public ProductController() {
-        this.productService      = new ProductService();
-        this.categoryService     = new CategoryService();
-        this.importExportService = new ImportExportService();
+    public void browse() throws SQLException {
+        InputUtil.table(categoryService.list());
+
+        String keyword = InputUtil.text("Search name (Enter for all): ");
+        String input = InputUtil.text("Category ID (Enter for all): ");
+
+        long categoryId = 0;
+
+        if (!input.isEmpty()) {
+            categoryId = Long.parseLong(input);
+        }
+
+        InputUtil.table(service.search(keyword, categoryId));
     }
 
-    /** Injection constructor for testing. */
-    public ProductController(ProductService productService,
-                             CategoryService categoryService,
-                             ImportExportService importExportService) {
-        this.productService      = productService;
-        this.categoryService     = categoryService;
-        this.importExportService = importExportService;
+    public void own(User user) throws SQLException {
+        InputUtil.table(service.own(user));
     }
 
-    // -----------------------------------------------------------------------
-    // Browse / search
-    // -----------------------------------------------------------------------
+    public void save(User user, boolean update) throws SQLException {
+        TableData categories = categoryService.list();
 
-    /** @return all active products for customer/guest browsing. */
-    public List<Product> listActiveProducts() {
-        return productService.getAllActiveProducts();
+        if (categories.getRow().isEmpty()) {
+            InputUtil.message(
+                    "No categories available. Ask an admin to create one."
+            );
+            return;
+        }
+
+        Product product = new Product();
+
+        if (update) {
+            TableData products = service.own(user);
+
+            if (products.getRow().isEmpty()) {
+                InputUtil.message("You have no products to update.");
+                return;
+            }
+
+            InputUtil.table(products);
+            product.setId(InputUtil.id("Product ID to update: "));
+        }
+
+        InputUtil.table(categories);
+
+        while (true) {
+            String input = InputUtil.text("Category ID (0 to cancel): ");
+
+            long categoryId;
+
+            try {
+                categoryId = Long.parseLong(input);
+            } catch (NumberFormatException exception) {
+                InputUtil.message("Enter a valid category ID.");
+                continue;
+            }
+
+            if (categoryId == 0) {
+                return;
+            }
+
+            boolean found = false;
+
+            for (String[] row : categories.getRow()) {
+                if (Long.parseLong(row[0]) == categoryId) {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                product.setCategoryId(categoryId);
+                break;
+            }
+
+            InputUtil.message("Choose an ID from the category table.");
+        }
+
+        product.setName(InputUtil.required("Product name: ", 150));
+
+        while (true) {
+            BigDecimal price = InputUtil.money("Price: ");
+
+            if (price.signum() > 0
+                    && price.stripTrailingZeros().scale() <= 2
+                    && price.compareTo(
+                    new BigDecimal("9999999999.99")) <= 0) {
+                product.setPrice(price);
+                break;
+            }
+
+            InputUtil.message("Enter a positive price with up to 2 decimals.");
+        }
+
+        while (true) {
+            int stock = InputUtil.number("Stock: ");
+
+            if (stock >= 0) {
+                product.setStock(stock);
+                break;
+            }
+
+            InputUtil.message("Stock cannot be negative.");
+        }
+
+        if (InputUtil.yes("Save this product?")) {
+            service.save(user, product);
+            InputUtil.message("Product saved.");
+        }
     }
 
-    /** @return active products matching the search keyword. */
-    public List<Product> searchProducts(String keyword) {
-        return productService.searchProducts(keyword);
+    public void active(User user, boolean active) throws SQLException {
+        own(user);
+        long id = InputUtil.id("Product ID: ");
+
+        if (InputUtil.yes("Confirm this change?")) {
+            service.active(user, id, active);
+            InputUtil.message("Product status updated.");
+        }
     }
 
-    /** @return active products in the given category. */
-    public List<Product> listByCategory(long categoryId) {
-        return productService.getProductsByCategory(categoryId);
+    public void importProducts(User user)
+            throws SQLException, java.io.IOException {
+
+        InputUtil.message(
+                "Import creates new products. Repeating it creates copies."
+        );
+
+        String filename = InputUtil.text(
+                "Input CSV/XLSX path (Enter to cancel): "
+        );
+
+        if (!filename.isEmpty() && InputUtil.yes("Import products?")) {
+            int count = files.importProducts(user, filename);
+            InputUtil.message("Imported " + count + " products.");
+        }
     }
 
-    /** @return a single product by id. */
-    public Product getProduct(long productId) {
-        return productService.getProductById(productId);
-    }
+    public void exportProducts(User user)
+            throws SQLException, java.io.IOException {
 
-    // -----------------------------------------------------------------------
-    // Seller operations
-    // -----------------------------------------------------------------------
+        String filename = InputUtil.text(
+                "Output CSV/XLSX path (Enter to cancel): "
+        );
 
-    /** @return all products (active and inactive) owned by the logged-in seller. */
-    public List<Product> listMyProducts(User seller) {
-        return productService.getSellerProducts(seller.getId());
-    }
-
-    /**
-     * Creates a new product for the logged-in seller.
-     *
-     * @return the persisted product with its generated id.
-     */
-    public Product createProduct(User seller, String name, BigDecimal price,
-                                 int stock, long categoryId) {
-        return productService.createProduct(seller, name, price, stock, categoryId);
-    }
-
-    /** Updates an existing product owned by the logged-in seller. */
-    public void updateProduct(User seller, long productId, String name,
-                              BigDecimal price, int stock, long categoryId) {
-        productService.updateProduct(seller, productId, name, price, stock, categoryId);
-    }
-
-    /** Soft-deletes (deactivates) a product owned by the logged-in seller. */
-    public void deactivateProduct(User seller, long productId) {
-        productService.deactivateProduct(seller, productId);
-    }
-
-    /** Re-activates a previously deactivated product. */
-    public void reactivateProduct(User seller, long productId) {
-        productService.reactivateProduct(seller, productId);
-    }
-
-    // -----------------------------------------------------------------------
-    // Import / Export
-    // -----------------------------------------------------------------------
-
-    /**
-     * Imports products from a CSV file.
-     *
-     * @return import result with count and any per-row error messages.
-     */
-    public ImportResult importFromCsv(User seller, String filePath) {
-        return importExportService.importProductsFromCsv(seller, filePath);
-    }
-
-    /**
-     * Imports products from an Excel (.xlsx) file.
-     *
-     * @return import result with count and any per-row error messages.
-     */
-    public ImportResult importFromExcel(User seller, String filePath) {
-        return importExportService.importProductsFromExcel(seller, filePath);
-    }
-
-    /** Exports the seller's products to a CSV file. */
-    public void exportToCsv(User seller, String filePath) {
-        importExportService.exportProductsToCsv(seller, filePath);
-    }
-
-    /** Exports the seller's products to an Excel (.xlsx) file. */
-    public void exportToExcel(User seller, String filePath) {
-        importExportService.exportProductsToExcel(seller, filePath);
-    }
-
-    // -----------------------------------------------------------------------
-    // Admin operations
-    // -----------------------------------------------------------------------
-
-    /** Returns every product (active and inactive). ADMIN only. */
-    public List<Product> listAllProducts(User admin) {
-        return productService.getAllProducts(admin);
-    }
-
-    /** Hard-deletes a product. ADMIN only. */
-    public void deleteProduct(User admin, long productId) {
-        productService.deleteProduct(admin, productId);
+        if (!filename.isEmpty()
+                && InputUtil.yes("Write file? Existing file will be replaced.")) {
+            InputUtil.message(
+                    "Exported to: " + files.exportProducts(user, filename)
+            );
+        }
     }
 }

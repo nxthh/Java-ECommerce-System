@@ -1,32 +1,12 @@
 package org.marketplace.repository;
 
-import org.marketplace.model.Product;
+import org.marketplace.model.TableData;
+import java.sql.SQLException;
 
-import java.util.List;
-
-/**
- * Data-access contract for wishlist items.
- * Implemented by Sreymey.
- */
 public interface WishlistRepository {
+    TableData findByUser(long userId) throws SQLException;
 
-    /** Returns all products wishlisted by the given user. */
-    List<Product> findByUser(long userId);
+    int add(long userId, long productId) throws SQLException;
 
-    /**
-     * Adds a product to the user's wishlist (idempotent).
-     *
-     * @return {@code true} if a new row was inserted.
-     */
-    boolean add(long userId, long productId);
-
-    /**
-     * Removes a product from the user's wishlist.
-     *
-     * @return {@code true} if a row was deleted.
-     */
-    boolean remove(long userId, long productId);
-
-    /** Returns {@code true} if the product is in the user's wishlist. */
-    boolean exists(long userId, long productId);
+    int remove(long userId, long productId) throws SQLException;
 }

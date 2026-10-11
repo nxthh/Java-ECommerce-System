@@ -39,8 +39,8 @@ public class CartService {
                         connection, productId, true
                 );
 
-                if (product == null  !product.isActive()
-                product.getStock() < quantity) {
+                if (product == null || !product.isActive()
+                        || product.getStock() < quantity) {
                     throw new ValidationException(
                             "Product unavailable or insufficient stock."
                     );

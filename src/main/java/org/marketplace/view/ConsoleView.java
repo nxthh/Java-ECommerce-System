@@ -1,73 +1,132 @@
 package org.marketplace.view;
 
-import org.nocrala.tools.texttablefmt.BorderStyle;
-import org.nocrala.tools.texttablefmt.CellStyle;
-import org.nocrala.tools.texttablefmt.ShownBorders;
-import org.nocrala.tools.texttablefmt.Table;
 import org.marketplace.model.TableData;
+import org.nocrala.tools.texttablefmt.Table;
 
-/**
- * Shared console-rendering utilities used by all view classes.
- * Wraps the text-table-formatter library to draw ASCII tables.
- */
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.Scanner;
+
 public class ConsoleView {
 
-    private ConsoleView() {}
+    private final Scanner scanner = new Scanner(System.in);
 
-    /**
-     * Renders a {@link TableData} as a bordered ASCII table.
-     *
-     * @param data the headers and rows to display.
-     */
-    public static void printTable(TableData data) {
-        if (data.getHeaders() == null || data.getHeaders().isEmpty()) {
-            System.out.println("  (no data)");
-            return;
+    public String text(String prompt) {
+        System.out.print(prompt);
+        return scanner.nextLine().trim();
+    }
+
+    public String password(String prompt) {
+        if (System.console() != null) {
+            char[] value = System.console().readPassword("%s", prompt);
+
+            if (value == null) {
+                throw new IllegalStateException("Input closed.");
+            }
+
+            String result = new String(value);
+            Arrays.fill(value, '\0');
+            return result;
         }
 
-        Table table = new Table(data.getHeaders().size(),
-                BorderStyle.UNICODE_BOX_WIDE,
-                ShownBorders.ALL);
+        System.out.print(prompt);
+        return scanner.nextLine();
+    }
 
-        CellStyle centeredHeader = new CellStyle(CellStyle.HorizontalAlign.CENTER);
-        for (String header : data.getHeaders()) {
-            table.addCell(header, centeredHeader);
+    public int number(String prompt) {
+        while (true) {
+            try {
+                return Integer.parseInt(text(prompt));
+            } catch (NumberFormatException exception) {
+                message("Enter a whole number.");
+            }
         }
+    }
 
-        if (data.getRows().isEmpty()) {
-            table.addCell("  (no records)", new CellStyle(CellStyle.HorizontalAlign.LEFT),
-                    data.getHeaders().size());
-        } else {
-            for (java.util.List<String> row : data.getRows()) {
-                for (String cell : row) {
-                    table.addCell(cell == null ? "" : cell);
+    public long id(String prompt) {
+        while (true) {
+            try {
+                long value = Long.parseLong(text(prompt));
+
+                if (value > 0) {
+                    return value;
                 }
+            } catch (NumberFormatException ignored) {
+            }
+
+            message("Enter a positive ID.");
+        }
+    }
+
+    public BigDecimal money(String prompt) {
+        while (true) {
+            try {
+                return new BigDecimal(text(prompt));
+            } catch (NumberFormatException exception) {
+                message("Enter a valid amount.");
+            }
+        }
+    }
+
+    public boolean yes(String prompt) {
+        while (true) {
+            String answer = text(prompt + " (y/n): ");
+
+            if ("y".equalsIgnoreCase(answer)) {
+                return true;
+            }
+
+            if ("n".equalsIgnoreCase(answer)) {
+                return false;
+            }
+
+            message("Enter y or n.");
+        }
+    }
+
+    public void message(String message) {
+        System.out.println("\n" + message);
+    }
+
+    public int menu(String title, String... options) {
+        System.out.println("\n=== " + title + " ===");
+
+        Table table = new Table(2);
+        table.addCell("OPTION");
+        table.addCell("ACTION");
+
+        for (int i = 0; i < options.length; i++) {
+            table.addCell(String.valueOf(i + 1));
+            table.addCell(options[i]);
+        }
+
+        table.addCell("0");
+        table.addCell("Back / Exit");
+
+        System.out.println(table.render());
+        return number("Choose: ");
+    }
+
+    public void table(TableData data) {
+        Table table = new Table(data.getHeader().length);
+
+        for (String header : data.getHeader()) {
+            table.addCell(header.toUpperCase().replace('_', ' '));
+        }
+
+        for (String[] row : data.getRow()) {
+            for (String value : row) {
+                table.addCell(value
+                        .replace("\r", " ")
+                        .replace("\n", " ")
+                        .replace("\t", " "));
             }
         }
 
         System.out.println(table.render());
-    }
 
-    /** Prints a decorated section header. */
-    public static void printHeader(String title) {
-        String line = "═".repeat(title.length() + 4);
-        System.out.println("\n╔" + line + "╗");
-        System.out.println("║  " + title + "  ║");
-        System.out.println("╚" + line + "╝");
-    }
-
-    /** Prints a success message in a standard format. */
-    public static void printSuccess(String msg) {
-        System.out.println("  ✔ " + msg);
-    }
-
-    /** Prints an error message in a standard format. */
-    public static void printError(String msg) {
-        System.out.println("  ✘ " + msg);
-    }
-
-    /** Prints an info line. */
-    public static void printInfo(String msg) {
-        System.out.println("  ℹ " + msg);
+        if (data.getRow().isEmpty()) {
+            System.out.println("No records found.");
+        }
     }
 }

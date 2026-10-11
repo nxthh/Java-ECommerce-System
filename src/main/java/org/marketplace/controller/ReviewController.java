@@ -1,43 +1,40 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.Review;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.User;
 import org.marketplace.service.ReviewService;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
-import java.util.Optional;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class ReviewController {
-    private final ReviewService reviewService;
 
-    public ReviewController() {
-        this.reviewService = new ReviewService();
+    private final ReviewService service;
+
+    public void list() throws SQLException {
+        InputUtil.table(
+                service.list(InputUtil.id("Product ID: "))
+        );
     }
 
-    public ReviewController(ReviewService reviewService) {
-        this.reviewService = reviewService;
-    }
+    public void save(User user) throws SQLException {
+        long productId = InputUtil.id("Product ID: ");
+        int rating;
 
-    public List<Review> getReviewsForProduct(long productId) {
-        return reviewService.getReviewsForProduct(productId);
-    }
+        do {
+            rating = InputUtil.number("Rating (1–5): ");
 
-    public List<Review> getReviewsByUser(long userId) {
-        return reviewService.getReviewsByUser(userId);
-    }
+            if (rating < 1 || rating > 5) {
+                InputUtil.message("Rating must be 1–5.");
+            }
+        } while (rating < 1 || rating > 5);
 
-    public Optional<Review> getReview(long id) {
-        return reviewService.getReview(id);
-    }
+        service.save(
+                user, productId, rating,
+                InputUtil.text("Comment: ")
+        );
 
-    public Review addReview(Review review) {
-        return reviewService.addReview(review);
-    }
-
-    public boolean updateReview(Review review) {
-        return reviewService.updateReview(review);
-    }
-
-    public boolean deleteReview(long id) {
-        return reviewService.deleteReview(id);
+        InputUtil.message("Review saved.");
     }
 }

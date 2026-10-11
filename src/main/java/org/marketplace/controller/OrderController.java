@@ -1,39 +1,94 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.Order;
-import org.marketplace.service.OrderService;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.*;
+import org.marketplace.service.*;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
-import java.util.Optional;
+import java.math.BigDecimal;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class OrderController {
-    private final OrderService orderService;
 
-    public OrderController() {
-        this.orderService = new OrderService();
+    private final OrderService service;
+    private final CartService cartService;
+
+    public void history(User user) throws SQLException {
+        InputUtil.table(service.history(user));
     }
 
-    public OrderController(OrderService orderService) {
-        this.orderService = orderService;
+    public void details(User user) throws SQLException {
+        TableData data = service.details(
+                user, InputUtil.id("Order ID: ")
+        );
+
+        if (data.getRow().isEmpty()) {
+            InputUtil.message("Order not found or access denied.");
+        } else {
+            InputUtil.table(data);
+        }
     }
 
-    public List<Order> getCustomerOrders(long customerId) {
-        return orderService.getCustomerOrders(customerId);
+    public void complete(User user) throws SQLException {
+        long id = InputUtil.id("Order ID: ");
+
+        if (InputUtil.yes("Mark this paid order completed?")) {
+            service.complete(user, id);
+            InputUtil.message("Order completed.");
+        }
     }
 
-    public List<Order> getAllOrders() {
-        return orderService.getAllOrders();
-    }
+    public void checkout(User user) throws SQLException {
+        TableData cart = cartService.list(user);
+        InputUtil.table(cart);
 
-    public Optional<Order> getOrderById(long orderId) {
-        return orderService.getOrderById(orderId);
-    }
+        if (cart.getRow().isEmpty()) {
+            return;
+        }
 
-    public Order placeOrder(Order order) {
-        return orderService.placeOrder(order);
-    }
+        BigDecimal total = BigDecimal.ZERO;
 
-    public boolean updateStatus(long orderId, Order.Status status) {
-        return orderService.updateStatus(orderId, status);
+        for (String[] row : cart.getRow()) {
+            total = total.add(new BigDecimal(row[4]));
+        }
+
+        InputUtil.message("Total: " + total);
+
+        int choice = InputUtil.menu(
+                "PAYMENT METHOD", "Cancel",
+                "Cash", "Card", "QR"
+        );
+
+        if (choice == 0) {
+            return;
+        }
+
+        String method;
+
+        if (choice == 1) {
+            method = "CASH";
+        } else if (choice == 2) {
+            method = "CARD";
+        } else {
+            method = "QR";
+        }
+
+        boolean success = InputUtil.yes("Simulate successful payment?");
+
+        if (!InputUtil.yes("Confirm checkout?")) {
+            return;
+        }
+
+        long id = service.checkout(user, method, success, total);
+
+        if (success) {
+            InputUtil.message("Payment successful. Order ID: " + id);
+        } else {
+            InputUtil.message(
+                    "Payment failed. Cancelled order ID: " + id
+                            + ". Cart and stock are unchanged."
+            );
+        }
     }
 }

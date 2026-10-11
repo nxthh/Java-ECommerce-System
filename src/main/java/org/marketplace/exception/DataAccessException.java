@@ -1,11 +1,9 @@
 package org.marketplace.exception;
 
-public class DataAccessException extends RuntimeException {
-    public DataAccessException(String message) {
-        super(message);
-    }
+import java.sql.SQLException;
 
-    public DataAccessException(String message, Throwable cause) {
-        super(message, cause);
+public class DataAccessException extends RuntimeException {
+    public DataAccessException(String message, SQLException e) {
+        super(message);
     }
 }

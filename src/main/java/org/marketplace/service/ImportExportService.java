@@ -1,181 +1,162 @@
 package org.marketplace.service;
 
+import lombok.RequiredArgsConstructor;
 import org.marketplace.exception.ValidationException;
-import org.marketplace.model.Category;
-import org.marketplace.model.Product;
-import org.marketplace.model.User;
-import org.marketplace.repository.CategoryRepository;
+import org.marketplace.model.*;
 import org.marketplace.repository.ProductRepository;
-import org.marketplace.repository.impl.PSQLCategoryRepository;
-import org.marketplace.repository.impl.PSQLProductRepository;
-import org.marketplace.util.CsvUtil;
-import org.marketplace.util.ExcelUtil;
+import org.marketplace.util.*;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Path;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.Locale;
 
-/**
- * Handles bulk CSV / Excel import and export of product data.
- * <p>
- * Expected column order for both formats:
- * <pre>Name | Price | Stock | Category</pre>
- * </p>
- */
+@RequiredArgsConstructor
 public class ImportExportService {
 
-    static final List<String> PRODUCT_HEADERS =
-            List.of("Name", "Price", "Stock", "Category");
+    private final ProductRepository productRepository;
+    private final ProductService productService;
+    private final ReportService reportService;
 
-    private final ProductRepository  productRepo;
-    private final CategoryRepository categoryRepo;
-    private final ProductService     productService;
+    private Path outputPath(String filename) {
+        Path path = Path.of(filename).toAbsolutePath().normalize();
+        String name = path.getFileName().toString();
+        String lower = name.toLowerCase(Locale.ROOT);
 
-    /** Default constructor wires PostgreSQL implementations. */
-    public ImportExportService() {
-        this.productRepo    = new PSQLProductRepository();
-        this.categoryRepo   = new PSQLCategoryRepository();
-        this.productService = new ProductService(productRepo, categoryRepo);
-    }
+        boolean csv = lower.endsWith(".csv") && name.length() > 4;
+        boolean excel = lower.endsWith(".xlsx") && name.length() > 5;
 
-    /** Injection constructor for testing. */
-    public ImportExportService(ProductRepository productRepo,
-                               CategoryRepository categoryRepo,
-                               ProductService productService) {
-        this.productRepo    = productRepo;
-        this.categoryRepo   = categoryRepo;
-        this.productService = productService;
-    }
-
-    // -----------------------------------------------------------------------
-    // Export
-    // -----------------------------------------------------------------------
-
-    /**
-     * Exports the seller's products to a CSV file.
-     *
-     * @param actor    the logged-in seller.
-     * @param filePath target CSV path.
-     */
-    public void exportProductsToCsv(User actor, String filePath) {
-        List<List<String>> rows = buildExportRows(actor);
-        CsvUtil.write(filePath, PRODUCT_HEADERS, rows);
-    }
-
-    /**
-     * Exports the seller's products to an Excel (.xlsx) file.
-     *
-     * @param actor    the logged-in seller.
-     * @param filePath target Excel path.
-     */
-    public void exportProductsToExcel(User actor, String filePath) {
-        List<List<String>> rows = buildExportRows(actor);
-        ExcelUtil.write(filePath, PRODUCT_HEADERS, rows);
-    }
-
-    // -----------------------------------------------------------------------
-    // Import
-    // -----------------------------------------------------------------------
-
-    /**
-     * Imports products from a CSV file for the given seller.
-     * Rows with validation errors are skipped and reported.
-     *
-     * @param actor    the logged-in seller.
-     * @param filePath source CSV path.
-     * @return import result summary.
-     */
-    public ImportResult importProductsFromCsv(User actor, String filePath) {
-        List<List<String>> rows = CsvUtil.read(filePath);
-        return processImportRows(actor, rows);
-    }
-
-    /**
-     * Imports products from an Excel (.xlsx) file for the given seller.
-     *
-     * @param actor    the logged-in seller.
-     * @param filePath source Excel path.
-     * @return import result summary.
-     */
-    public ImportResult importProductsFromExcel(User actor, String filePath) {
-        List<List<String>> rows = ExcelUtil.read(filePath);
-        return processImportRows(actor, rows);
-    }
-
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
-
-    private List<List<String>> buildExportRows(User actor) {
-        List<Product> products = productRepo.findBySeller(actor.getId());
-        List<List<String>> rows = new ArrayList<>();
-        for (Product p : products) {
-            rows.add(List.of(
-                    p.getName(),
-                    p.getPrice().toPlainString(),
-                    String.valueOf(p.getStock()),
-                    p.getCategoryName() != null ? p.getCategoryName() : ""
-            ));
+        if (!csv && !excel) {
+            throw new ValidationException(
+                    "Use a filename such as products.csv or report.xlsx."
+            );
         }
-        return rows;
+
+        return path;
     }
 
-    private ImportResult processImportRows(User actor, List<List<String>> rows) {
-        int imported = 0;
-        List<String> errors = new ArrayList<>();
+    private Path write(String filename, TableData data) throws IOException {
+        Path path = outputPath(filename);
+        String lower = path.toString().toLowerCase(Locale.ROOT);
 
-        for (int i = 0; i < rows.size(); i++) {
-            List<String> row = rows.get(i);
-            int lineNum = i + 2; // 1-based, account for header
+        if (lower.endsWith(".csv")) {
+            CsvUtil.write(path, data);
+        } else {
+            ExcelUtil.write(path, data);
+        }
 
-            try {
-                if (row.size() < 4) {
-                    errors.add("Line " + lineNum + ": expected 4 columns, got " + row.size());
-                    continue;
-                }
+        return path;
+    }
 
-                String       name     = row.get(0).trim();
-                BigDecimal   price    = new BigDecimal(row.get(1).trim());
-                int          stock    = Integer.parseInt(row.get(2).trim());
-                String       catName  = row.get(3).trim();
+    public Path exportProducts(User user, String filename)
+            throws SQLException, IOException {
 
-                Optional<Category> cat = categoryRepo.findByName(catName);
-                if (cat.isEmpty()) {
-                    errors.add("Line " + lineNum + ": unknown category \"" + catName + "\"");
-                    continue;
-                }
+        UserService.requireRole(user, "SELLER");
 
-                productService.createProduct(actor, name, price, stock, cat.get().getId());
-                imported++;
+        return write(
+                filename,
+                productRepository.exportBySeller(user.getId())
+        );
+    }
 
-            } catch (NumberFormatException e) {
-                errors.add("Line " + lineNum + ": invalid number format – " + e.getMessage());
-            } catch (ValidationException e) {
-                errors.add("Line " + lineNum + ": " + e.getMessage());
+    public Path exportReport(User user, String type, String filename)
+            throws SQLException, IOException {
+
+        return write(filename, reportService.generate(user, type));
+    }
+
+    public int importProducts(User user, String filename)
+            throws SQLException, IOException {
+
+        UserService.requireRole(user, "SELLER");
+
+        String lower = filename.toLowerCase(Locale.ROOT);
+        TableData data;
+
+        if (lower.endsWith(".csv")) {
+            data = CsvUtil.read(Path.of(filename));
+        } else if (lower.endsWith(".xlsx")) {
+            data = ExcelUtil.read(Path.of(filename));
+        } else {
+            throw new ValidationException("Choose a CSV or XLSX file.");
+        }
+
+        String[] expected = {
+                "category_id", "name", "price", "stock", "is_active"
+        };
+
+        if (data.getHeader().length != expected.length) {
+            throw new ValidationException("Expected exactly 5 columns.");
+        }
+
+        for (int i = 0; i < expected.length; i++) {
+            if (!expected[i].equals(data.getHeader()[i].trim())) {
+                throw new ValidationException(
+                        "Expected column " + (i + 1) + ": " + expected[i]
+                );
             }
         }
 
-        return new ImportResult(imported, errors);
-    }
-
-    // -----------------------------------------------------------------------
-    // Result record
-    // -----------------------------------------------------------------------
-
-    /** Summary returned after a bulk import. */
-    public static class ImportResult {
-        public final int          imported;
-        public final List<String> errors;
-
-        public ImportResult(int imported, List<String> errors) {
-            this.imported = imported;
-            this.errors   = errors;
+        if (data.getRow().isEmpty()) {
+            throw new ValidationException("No products to import.");
         }
 
-        @Override
-        public String toString() {
-            return "Imported: " + imported + " product(s). Errors: " + errors.size();
+        List<Product> products = new ArrayList<>();
+        int rowNumber = 1;
+
+        for (String[] row : data.getRow()) {
+            rowNumber++;
+
+            try {
+                if (row.length != 5) {
+                    throw new ValidationException("Expected 5 values.");
+                }
+
+                Product product = new Product();
+                product.setSellerId(user.getId());
+                product.setCategoryId(Long.parseLong(row[0].trim()));
+                product.setName(row[1]);
+                product.setPrice(new BigDecimal(row[2].trim()));
+                product.setStock(Integer.parseInt(row[3].trim()));
+
+                String active = row[4].trim();
+
+                if (!"true".equalsIgnoreCase(active)
+                        && !"false".equalsIgnoreCase(active)) {
+                    throw new ValidationException(
+                            "is_active must be true or false."
+                    );
+                }
+
+                product.setActive(Boolean.parseBoolean(active));
+                productService.validate(product);
+                products.add(product);
+
+            } catch (IllegalArgumentException | ValidationException exception) {
+                throw new ValidationException(
+                        "Row " + rowNumber + ": " + exception.getMessage()
+                );
+            }
+        }
+
+        try (Connection connection = JdbcUtil.open()) {
+            connection.setAutoCommit(false);
+
+            try {
+                for (Product product : products) {
+                    productRepository.save(connection, product);
+                }
+
+                connection.commit();
+                return products.size();
+
+            } catch (SQLException | RuntimeException exception) {
+                JdbcUtil.rollback(connection, exception);
+                throw exception;
+            }
         }
     }
 }

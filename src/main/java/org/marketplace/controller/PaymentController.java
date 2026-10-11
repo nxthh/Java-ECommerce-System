@@ -1,31 +1,18 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.Payment;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.User;
 import org.marketplace.service.PaymentService;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
-import java.util.Optional;
+import java.sql.SQLException;
 
+@RequiredArgsConstructor
 public class PaymentController {
-    private final PaymentService paymentService;
 
-    public PaymentController() {
-        this.paymentService = new PaymentService();
-    }
+    private final PaymentService service;
 
-    public PaymentController(PaymentService paymentService) {
-        this.paymentService = paymentService;
-    }
-
-    public List<Payment> getPaymentsForOrder(long orderId) {
-        return paymentService.getPaymentsForOrder(orderId);
-    }
-
-    public Optional<Payment> getPaymentById(long id) {
-        return paymentService.getPaymentById(id);
-    }
-
-    public Payment processPayment(Payment payment) {
-        return paymentService.processPayment(payment);
+    public void history(User user) throws SQLException {
+        InputUtil.table(service.history(user));
     }
 }

@@ -1,36 +1,22 @@
 package org.marketplace.repository;
 
-import org.marketplace.model.Order;
+import org.marketplace.model.*;
+import java.math.BigDecimal;
+import java.sql.*;
 
-import java.util.List;
-import java.util.Optional;
-
-/**
- * Data-access contract for {@link Order} entities.
- * Implemented by Phanit.
- */
 public interface OrderRepository {
+    long create(Connection connection, long customerId, BigDecimal total)
+            throws SQLException;
 
-    /** Returns all orders for the given customer, most recent first. */
-    List<Order> findByCustomer(long customerId);
+    void addItem(Connection connection, long orderId,
+                 Product product, int quantity) throws SQLException;
 
-    /** Returns every order in the system (admin view). */
-    List<Order> findAll();
+    void updateStatus(Connection connection, long id, String status)
+            throws SQLException;
 
-    /** Looks up a single order by its primary key, including its items. */
-    Optional<Order> findById(long id);
+    TableData findByUser(User user) throws SQLException;
 
-    /**
-     * Creates a new order (with items) inside a single transaction.
-     *
-     * @return the persisted order with its generated id.
-     */
-    Order save(Order order);
+    TableData details(User user, long orderId) throws SQLException;
 
-    /**
-     * Updates the status of an order.
-     *
-     * @return {@code true} if a row was updated.
-     */
-    boolean updateStatus(long orderId, Order.Status status);
+    int complete(long orderId) throws SQLException;
 }

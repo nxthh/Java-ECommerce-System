@@ -1,61 +1,125 @@
 package org.marketplace.util;
 
+import org.marketplace.config.DBConfig;
 import org.marketplace.exception.DataAccessException;
+import org.marketplace.model.TableData;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * Thin JDBC helper used by all repository implementations.
- * Provides auto-closeable wrappers to avoid repetitive try/catch blocks.
- */
 public class JdbcUtil {
 
-    private JdbcUtil() {}
-
-    /**
-     * Executes a query, returning a {@link ResultSet}.
-     * The caller is responsible for closing the statement and connection.
-     */
-    public static PreparedStatement prepare(Connection conn, String sql, Object... params)
-            throws SQLException {
-        PreparedStatement stmt = conn.prepareStatement(sql);
-        bindParams(stmt, params);
-        return stmt;
-    }
-
-    /**
-     * Executes a query that returns generated keys (INSERT).
-     * The caller is responsible for closing the statement and connection.
-     */
-    public static PreparedStatement prepareWithKeys(Connection conn, String sql, Object... params)
-            throws SQLException {
-        PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
-        bindParams(stmt, params);
-        return stmt;
-    }
-
-    /**
-     * Retrieves the first generated key from a statement executed against
-     * a SERIAL / IDENTITY column.
-     *
-     * @throws DataAccessException if no key was returned.
-     */
-    public static long getGeneratedKey(PreparedStatement stmt) throws SQLException {
-        try (ResultSet keys = stmt.getGeneratedKeys()) {
-            if (keys.next()) {
-                return keys.getLong(1);
-            }
+    public static Connection open() {
+        try {
+            return DBConfig.getConnection();
+        } catch (SQLException exception) {
+            throw new DataAccessException(
+                    "Cannot connect to the database.", exception
+            );
         }
-        throw new DataAccessException("No generated key returned by the database");
     }
 
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
+    public static PreparedStatement prepare(
+            Connection connection,
+            String sql,
+            Object... values
+    ) throws SQLException {
 
-    private static void bindParams(PreparedStatement stmt, Object[] params) throws SQLException {
-        for (int i = 0; i < params.length; i++) {
-            stmt.setObject(i + 1, params[i]);
+        PreparedStatement statement = connection.prepareStatement(sql);
+
+        try {
+            for (int i = 0; i < values.length; i++) {
+                statement.setObject(i + 1, values[i]);
+            }
+
+            return statement;
+
+        } catch (SQLException exception) {
+            statement.close();
+            throw exception;
+        }
+    }
+
+    public static int update(
+            Connection connection,
+            String sql,
+            Object... values
+    ) throws SQLException {
+
+        try (PreparedStatement statement =
+                     prepare(connection, sql, values)) {
+            return statement.executeUpdate();
+        }
+    }
+
+    public static int update(String sql, Object... values)
+            throws SQLException {
+
+        try (Connection connection = open()) {
+            return update(connection, sql, values);
+        }
+    }
+
+    public static long insertId(
+            Connection connection,
+            String sql,
+            Object... values
+    ) throws SQLException {
+
+        try (PreparedStatement statement =
+                     prepare(connection, sql, values);
+             ResultSet result = statement.executeQuery()) {
+
+            if (!result.next()) {
+                throw new SQLException("Insert returned no ID.");
+            }
+
+            return result.getLong(1);
+        }
+    }
+
+    public static TableData query(String sql, Object... values)
+            throws SQLException {
+
+        try (Connection connection = open();
+             PreparedStatement statement =
+                     prepare(connection, sql, values);
+             ResultSet result = statement.executeQuery()) {
+
+            ResultSetMetaData metadata = result.getMetaData();
+            int count = metadata.getColumnCount();
+
+            String[] headers = new String[count];
+            List<String[]> rows = new ArrayList<>();
+
+            for (int i = 0; i < count; i++) {
+                headers[i] = metadata.getColumnLabel(i + 1);
+            }
+
+            while (result.next()) {
+                String[] row = new String[count];
+
+                for (int i = 0; i < count; i++) {
+                    String value = result.getString(i + 1);
+                    row[i] = value == null ? "" : value;
+                }
+
+                rows.add(row);
+            }
+
+            return new TableData(headers, rows);
+        }
+    }
+
+    public static void rollback(
+            Connection connection,
+            Exception original
+    ) {
+        try {
+            connection.rollback();
+        } catch (SQLException exception) {
+            original.addSuppressed(exception);
         }
     }
 }

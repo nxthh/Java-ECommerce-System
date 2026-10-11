@@ -1,43 +1,18 @@
 package org.marketplace.repository;
 
-import org.marketplace.model.CartItem;
-
+import org.marketplace.model.*;
+import java.sql.*;
 import java.util.List;
-import java.util.Optional;
 
-/**
- * Data-access contract for shopping cart items.
- * Implemented by Sreymey.
- */
 public interface CartRepository {
+    TableData findByUser(long userId) throws SQLException;
 
-    /** Returns all cart items for the given user, enriched with product details. */
-    List<CartItem> findByUser(long userId);
+    List<CartItem> findItems(Connection connection, long userId)
+            throws SQLException;
 
-    /** Looks up a single cart item by (userId, productId). */
-    Optional<CartItem> findByUserAndProduct(long userId, long productId);
+    void setQuantity(Connection connection, long userId,
+                     long productId, int quantity) throws SQLException;
 
-    /**
-     * Adds a product to the cart, or increments quantity if already present.
-     *
-     * @return the updated/created {@link CartItem}.
-     */
-    CartItem addOrUpdate(long userId, long productId, int quantity);
-
-    /**
-     * Sets the quantity of a cart item.
-     *
-     * @return {@code true} if the row was updated.
-     */
-    boolean updateQuantity(long userId, long productId, int quantity);
-
-    /**
-     * Removes a single item from the cart.
-     *
-     * @return {@code true} if a row was deleted.
-     */
-    boolean remove(long userId, long productId);
-
-    /** Removes all items from the given user's cart. */
-    void clearCart(long userId);
+    int remove(Connection connection, long userId, long productId)
+            throws SQLException;
 }

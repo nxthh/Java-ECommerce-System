@@ -2,97 +2,127 @@ package org.marketplace.util;
 
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-import org.marketplace.exception.DataAccessException;
+import org.marketplace.model.TableData;
 
 import java.io.*;
+import java.math.BigDecimal;
+import java.nio.file.*;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
-/**
- * Excel (.xlsx) import / export helper backed by Apache POI.
- */
 public class ExcelUtil {
 
-    private ExcelUtil() {}
+    public static TableData read(Path path) throws IOException {
+        try (InputStream input = Files.newInputStream(path);
+             Workbook workbook = new XSSFWorkbook(input)) {
 
-    /**
-     * Writes rows to an Excel .xlsx file.
-     *
-     * @param file    target file path.
-     * @param headers column headers (written as the first row).
-     * @param rows    data rows.
-     */
-    public static void write(String file, List<String> headers, List<List<String>> rows) {
-        try (Workbook wb = new XSSFWorkbook()) {
-            Sheet  sheet    = wb.createSheet("Products");
-            Row    headerRow = sheet.createRow(0);
-
-            // Bold header style
-            CellStyle boldStyle = wb.createCellStyle();
-            Font font = wb.createFont();
-            font.setBold(true);
-            boldStyle.setFont(font);
-
-            for (int c = 0; c < headers.size(); c++) {
-                Cell cell = headerRow.createCell(c);
-                cell.setCellValue(headers.get(c));
-                cell.setCellStyle(boldStyle);
+            if (workbook.getNumberOfSheets() == 0) {
+                throw new IOException("Excel workbook has no sheets.");
             }
 
-            for (int r = 0; r < rows.size(); r++) {
-                Row dataRow = sheet.createRow(r + 1);
-                List<String> row = rows.get(r);
-                for (int c = 0; c < row.size(); c++) {
-                    dataRow.createCell(c).setCellValue(row.get(c));
+            Sheet sheet = workbook.getSheetAt(0);
+            Row headerRow = sheet.getRow(0);
+
+            if (headerRow == null || headerRow.getLastCellNum() <= 0) {
+                throw new IOException("Excel header is missing.");
+            }
+
+            int columns = headerRow.getLastCellNum();
+            String[] headers = new String[columns];
+
+            for (int i = 0; i < columns; i++) {
+                headers[i] = text(headerRow.getCell(i));
+            }
+
+            List<String[]> rows = new ArrayList<>();
+
+            for (int i = 1; i <= sheet.getLastRowNum(); i++) {
+                Row excelRow = sheet.getRow(i);
+
+                if (excelRow == null) {
+                    continue;
+                }
+
+                if (excelRow.getLastCellNum() > columns) {
+                    throw new IOException(
+                            "Extra columns on Excel row " + (i + 1)
+                    );
+                }
+
+                String[] row = new String[columns];
+                boolean empty = true;
+
+                for (int j = 0; j < columns; j++) {
+                    row[j] = text(excelRow.getCell(j));
+
+                    if (!row[j].isBlank()) {
+                        empty = false;
+                    }
+                }
+
+                if (!empty) {
+                    rows.add(row);
                 }
             }
 
-            // Auto-size columns
-            for (int c = 0; c < headers.size(); c++) {
-                sheet.autoSizeColumn(c);
-            }
-
-            try (FileOutputStream fos = new FileOutputStream(file)) {
-                wb.write(fos);
-            }
-        } catch (IOException e) {
-            throw new DataAccessException("Failed to write Excel file: " + file, e);
+            return new TableData(headers, rows);
         }
     }
 
-    /**
-     * Reads all records from an Excel .xlsx file (skipping the header row).
-     *
-     * @param file source file path.
-     * @return list of rows; each row is a list of string cell values.
-     */
-    public static List<List<String>> read(String file) {
-        List<List<String>> result = new ArrayList<>();
-        try (Workbook wb = new XSSFWorkbook(new FileInputStream(file))) {
-            Sheet sheet = wb.getSheetAt(0);
-            Iterator<Row> rowIter = sheet.iterator();
-            if (rowIter.hasNext()) rowIter.next(); // skip header
+    public static void write(Path path, TableData data) throws IOException {
+        Files.createDirectories(path.toAbsolutePath().getParent());
 
-            while (rowIter.hasNext()) {
-                Row row = rowIter.next();
-                List<String> values = new ArrayList<>();
-                for (Cell cell : row) {
-                    values.add(getCellString(cell));
+        try (Workbook workbook = new XSSFWorkbook()) {
+            Sheet sheet = workbook.createSheet("Data");
+            Row header = sheet.createRow(0);
+
+            for (int i = 0; i < data.getHeader().length; i++) {
+                header.createCell(i).setCellValue(data.getHeader()[i]);
+            }
+
+            int rowNumber = 1;
+
+            for (String[] values : data.getRow()) {
+                Row row = sheet.createRow(rowNumber++);
+
+                for (int i = 0; i < values.length; i++) {
+                    row.createCell(i).setCellValue(values[i]);
                 }
-                result.add(values);
             }
-        } catch (IOException e) {
-            throw new DataAccessException("Failed to read Excel file: " + file, e);
+
+            for (int i = 0; i < data.getHeader().length; i++) {
+                sheet.setColumnWidth(i, 22 * 256);
+            }
+
+            try (OutputStream output = Files.newOutputStream(path)) {
+                workbook.write(output);
+            }
         }
-        return result;
     }
 
-    // -----------------------------------------------------------------------
+    private static String text(Cell cell) throws IOException {
+        if (cell == null) {
+            return "";
+        }
 
-    private static String getCellString(Cell cell) {
-        if (cell == null) return "";
-        DataFormatter formatter = new DataFormatter();
-        return formatter.formatCellValue(cell).trim();
+        switch (cell.getCellType()) {
+            case STRING:
+                return cell.getStringCellValue();
+
+            case NUMERIC:
+                return BigDecimal.valueOf(cell.getNumericCellValue())
+                        .stripTrailingZeros().toPlainString();
+
+            case BOOLEAN:
+                return String.valueOf(cell.getBooleanCellValue());
+
+            case BLANK:
+                return "";
+
+            default:
+                throw new IOException(
+                        "Use plain values, not formulas or error cells."
+                );
+        }
     }
 }

@@ -4,69 +4,109 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
-import org.marketplace.exception.DataAccessException;
+import org.marketplace.model.TableData;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
-/**
- * CSV import / export helper backed by Apache Commons CSV.
- */
 public class CsvUtil {
 
-    private CsvUtil() {}
+    public static TableData read(Path path) throws IOException {
+        try (Reader reader = Files.newBufferedReader(
+                path, StandardCharsets.UTF_8);
+             CSVParser parser = CSVFormat.DEFAULT.parse(reader)) {
 
-    /**
-     * Writes rows to a CSV file.
-     *
-     * @param file    target file path.
-     * @param headers column headers.
-     * @param rows    data rows (each row is a list of values).
-     */
-    public static void write(String file, List<String> headers, List<List<String>> rows) {
-        CSVFormat format = CSVFormat.DEFAULT.builder()
-                .setHeader(headers.toArray(new String[0]))
-                .build();
-        try (BufferedWriter bw = new BufferedWriter(
-                     new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8));
-             CSVPrinter printer = new CSVPrinter(bw, format)) {
+            List<CSVRecord> records = parser.getRecords();
 
-            for (List<String> row : rows) {
-                printer.printRecord(row);
+            if (records.isEmpty()) {
+                throw new IOException("CSV file is empty.");
             }
-        } catch (IOException e) {
-            throw new DataAccessException("Failed to write CSV: " + file, e);
+
+            CSVRecord first = records.get(0);
+            String[] headers = new String[first.size()];
+
+            for (int i = 0; i < headers.length; i++) {
+                headers[i] = first.get(i);
+            }
+
+            // Remove a possible UTF-8 BOM.
+            headers[0] = headers[0].replace("\uFEFF", "");
+
+            List<String[]> rows = new ArrayList<>();
+
+            for (int i = 1; i < records.size(); i++) {
+                CSVRecord record = records.get(i);
+                String[] row = new String[record.size()];
+
+                for (int j = 0; j < row.length; j++) {
+                    row[j] = unprotect(record.get(j));
+                }
+
+                rows.add(row);
+            }
+
+            return new TableData(headers, rows);
         }
     }
 
-    /**
-     * Reads all records from a CSV file (skipping the header row).
-     *
-     * @param file source file path.
-     * @return list of rows; each row is a list of string values in column order.
-     */
-    public static List<List<String>> read(String file) {
-        List<List<String>> result = new ArrayList<>();
-        CSVFormat format = CSVFormat.DEFAULT.builder()
-                .setHeader()
-                .setSkipHeaderRecord(true)
-                .build();
-        try (BufferedReader br = new BufferedReader(
-                     new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8));
-             CSVParser parser = new CSVParser(br, format)) {
+    public static void write(Path path, TableData data) throws IOException {
+        Path parent = path.toAbsolutePath().getParent();
+        Files.createDirectories(parent);
 
-            for (CSVRecord record : parser) {
-                List<String> row = new ArrayList<>();
-                for (String value : record) {
-                    row.add(value);
+        try (Writer writer = Files.newBufferedWriter(
+                path, StandardCharsets.UTF_8);
+             CSVPrinter printer = new CSVPrinter(
+                     writer, CSVFormat.DEFAULT)) {
+
+            printer.printRecord(Arrays.asList(data.getHeader()));
+
+            for (String[] row : data.getRow()) {
+                List<String> values = new ArrayList<>();
+
+                for (String value : row) {
+                    values.add(protect(value));
                 }
-                result.add(row);
+
+                printer.printRecord(values);
             }
-        } catch (IOException e) {
-            throw new DataAccessException("Failed to read CSV: " + file, e);
         }
-        return result;
+    }
+
+    private static boolean needsProtection(String value) {
+        String trimmed = value.stripLeading();
+
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+
+        char first = trimmed.charAt(0);
+
+        return first == '=' || first == '+' || first == '-'
+                || first == '@' || first == '\'';
+    }
+
+    private static String protect(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        if (needsProtection(value)) {
+            return "'" + value;
+        }
+
+        return value;
+    }
+
+    private static String unprotect(String value) {
+        if (value.startsWith("'")
+                && needsProtection(value.substring(1))) {
+            return value.substring(1);
+        }
+
+        return value;
     }
 }

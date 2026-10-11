@@ -1,52 +1,50 @@
 package org.marketplace.controller;
 
-import org.marketplace.model.Category;
+import lombok.RequiredArgsConstructor;
+import org.marketplace.model.User;
 import org.marketplace.service.CategoryService;
+import org.marketplace.util.InputUtil;
 
-import java.util.List;
+import java.sql.SQLException;
 
-/**
- * Thin controller for category management.
- * Primarily used by the admin view to manage categories.
- */
+@RequiredArgsConstructor
 public class CategoryController {
 
-    private final CategoryService categoryService;
+    private final CategoryService service;
 
-    public CategoryController() {
-        this.categoryService = new CategoryService();
+    public void list() throws SQLException {
+        InputUtil.table(service.list());
     }
 
-    public CategoryController(CategoryService categoryService) {
-        this.categoryService = categoryService;
+    public void add(User user) throws SQLException {
+        service.save(
+                user, 0,
+                InputUtil.required("Category name: ", 100)
+        );
+
+        InputUtil.message("Category added.");
+        list();
     }
 
-    /** @return all categories ordered by name. */
-    public List<Category> listAllCategories() {
-        return categoryService.getAllCategories();
+    public void rename(User user) throws SQLException {
+        list();
+
+        service.save(
+                user,
+                InputUtil.id("Category ID: "),
+                InputUtil.required("New category name: ", 100)
+        );
+
+        InputUtil.message("Category updated.");
     }
 
-    /** @return the category with the given id. */
-    public Category getCategory(long id) {
-        return categoryService.getCategoryById(id);
-    }
+    public void delete(User user) throws SQLException {
+        list();
+        long id = InputUtil.id("Category ID: ");
 
-    /**
-     * Creates a new category.
-     *
-     * @return the persisted category.
-     */
-    public Category createCategory(String name) {
-        return categoryService.createCategory(name);
-    }
-
-    /** Renames an existing category. */
-    public void renameCategory(long id, String newName) {
-        categoryService.renameCategory(id, newName);
-    }
-
-    /** Deletes a category by id. */
-    public void deleteCategory(long id) {
-        categoryService.deleteCategory(id);
+        if (InputUtil.yes("Delete this unused category?")) {
+            service.delete(user, id);
+            InputUtil.message("Category deleted.");
+        }
     }
 }
