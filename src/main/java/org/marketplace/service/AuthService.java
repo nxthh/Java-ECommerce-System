@@ -1,85 +1,68 @@
 package org.marketplace.service;
 
-import org.marketplace.exception.AuthorizationException;
+import lombok.RequiredArgsConstructor;
 import org.marketplace.exception.ValidationException;
 import org.marketplace.model.User;
 import org.marketplace.repository.UserRepository;
-import org.marketplace.repository.impl.PSQLUserRepository;
 import org.marketplace.util.PasswordUtil;
 
-import java.util.Optional;
+import java.sql.SQLException;
 
-/**
- * Authentication and session service.
- */
+@RequiredArgsConstructor
 public class AuthService {
 
-    private final UserRepository userRepo;
-    private User currentUser;
+    private final UserRepository repository;
 
-    public AuthService() {
-        this(new PSQLUserRepository());
+    public void register(
+            String username, String password,
+            String fullName, String role
+    ) throws SQLException {
+
+        username = username.trim();
+        fullName = fullName.trim();
+
+        if (!username.matches("[A-Za-z0-9_]{3,50}")) {
+            throw new ValidationException(
+                    "Username: 3–50 letters, digits or underscores."
+            );
+        }
+
+        if (password.length() < 8) {
+            throw new ValidationException(
+                    "Password must contain at least 8 characters."
+            );
+        }
+
+        if (fullName.isEmpty() || fullName.length() > 100) {
+            throw new ValidationException("Invalid full name.");
+        }
+
+        if (!"CUSTOMER".equals(role) && !"SELLER".equals(role)) {
+            throw new ValidationException("Invalid registration role.");
+        }
+
+        User user = new User();
+        user.setUsername(username);
+        user.setPasswordHash(PasswordUtil.hash(password));
+        user.setFullName(fullName);
+        user.setRole(role);
+
+        repository.save(user);
     }
 
-    public AuthService(UserRepository userRepo) {
-        this.userRepo = userRepo;
-    }
+    public User login(String username, String password)
+            throws SQLException {
 
-    public User register(String username, String rawPassword, String fullName, User.Role role) {
-        if (username == null || username.trim().isEmpty()) {
-            throw new ValidationException("Username cannot be empty");
-        }
-        if (rawPassword == null || rawPassword.length() < 4) {
-            throw new ValidationException("Password must be at least 4 characters long");
-        }
-        if (fullName == null || fullName.trim().isEmpty()) {
-            throw new ValidationException("Full name cannot be empty");
-        }
-        if (role == null) {
-            role = User.Role.CUSTOMER;
+        User user = repository.findByUsername(username.trim());
+
+        if (user == null
+                || !PasswordUtil.matches(password, user.getPasswordHash())) {
+            throw new ValidationException(
+                    "Invalid username or password."
+            );
         }
 
-        Optional<User> existing = userRepo.findByUsername(username.trim());
-        if (existing.isPresent()) {
-            throw new ValidationException("Username '" + username + "' is already taken");
-        }
-
-        String passwordHash = PasswordUtil.hash(rawPassword);
-        User user = User.builder()
-                .username(username.trim())
-                .passwordHash(passwordHash)
-                .fullName(fullName.trim())
-                .role(role)
-                .build();
-
-        return userRepo.save(user);
-    }
-
-    public User login(String username, String rawPassword) {
-        if (username == null || rawPassword == null) {
-            throw new ValidationException("Username and password required");
-        }
-
-        User user = userRepo.findByUsername(username.trim())
-                .orElseThrow(() -> new AuthorizationException("Invalid username or password"));
-
-        if (!PasswordUtil.verify(rawPassword, user.getPasswordHash())) {
-            throw new AuthorizationException("Invalid username or password");
-        }
-
-        this.currentUser = user;
+        user.setPasswordHash(null);
         return user;
-    }
-
-    public void logout() {
-        this.currentUser = null;
-    }
-
-    public User getCurrentUser() {
-        return currentUser;
-    }
-
-    public boolean isLoggedIn() {
-        return currentUser != null;
     }
 }
